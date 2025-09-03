@@ -20,17 +20,22 @@
    uv sync
    ```
 
-2. DVC 초기화 (이미 완료됨):
+2. Pre-commit hooks 설정 (코드 품질 자동 검사):
+   ```
+   uv run pre-commit install
+   ```
+
+3. DVC 초기화 (이미 완료됨):
    ```
    uv run dvc init
    ```
 
-3. Airflow 시작:
+4. Airflow 시작:
    ```
    uv run airflow standalone
    ```
 
-4. MLflow UI 시작:
+5. MLflow UI 시작:
    ```
    uv run mlflow ui
    ```
