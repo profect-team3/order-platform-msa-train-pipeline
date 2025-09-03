@@ -1,0 +1,11 @@
+# Airflow Webserver Configuration (YAML format)
+# This file configures the Airflow webserver for development
+
+webserver:
+  # Disable authentication completely
+  auth_type: "AUTH_ANONYMOUS"
+  auth_role_public: "Admin"
+  
+  # Webserver settings
+  x_frame_enabled: true
+  warn_deployment_exposure: false
