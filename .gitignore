@@ -238,3 +238,9 @@ Thumbs.db
 
 # Docker Compose
 docker-compose.override.yml
+
+# Ruff
+.ruff_cache/
+
+# Virtual Environment
+.venv/
