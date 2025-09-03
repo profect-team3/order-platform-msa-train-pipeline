@@ -130,17 +130,18 @@ CI 파이프라인은 `main`과 `dev` 브랜치의 모든 푸시와 풀 리퀘�
 
 ### 로컬 개발
 
-로컬에서 CI 파이프라인을 실행하려면:
+로컬에서 코드 품질 검사를 수행하려면:
 
 ```bash
-./scripts/ci.sh
-```
+# 린팅
+uv run ruff check .
 
-다음을 수행합니다:
-- 의존성 설치/업데이트
-- 린팅 실행
-- 테스트 실행
-- 훈련 스크립트 실행
+# 테스트 실행
+uv run pytest
+
+# 훈련 스크립트 실행
+uv run python scripts/train.py
+```
 
 ### Docker
 
