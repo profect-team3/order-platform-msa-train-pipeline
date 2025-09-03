@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Run linting
+      run: uv run ruff check .
+
+    - name: Run tests
+      run: uv run pytest
+
+    - name: Run training script
+      run: uv run python scripts/train.py
+
+    - name: Build Docker image
+      run: docker build -t order-platform-mlops .

@@ -8,4 +8,6 @@ dependencies = [
     "apache-airflow>=3.0.6",
     "dvc>=3.63.0",
     "mlflow>=3.3.2",
+    "pytest>=8.4.1",
+    "ruff>=0.12.11",
 ]
