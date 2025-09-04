@@ -7,23 +7,32 @@ on:
     branches: [ main, dev ]
 
 jobs:
-  test:
+  dev:
+    if: github.ref == 'refs/heads/dev' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-
     - name: Install uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
     - name: Set up Python
       run: uv python install 3.13
-
-    - name: Install dependencies
-      run: uv sync
-
+    - name: Install dependencies (dev)
+      run: uv sync --group dev
     - name: Run tests
       run: uv run pytest
+    - name: Lint with ruff
+      run: uv run ruff check .
 
+  prod:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: Set up Python
+      run: uv python install 3.13
+    - name: Install dependencies (prod)
+      run: uv sync
     - name: Build Docker image
       run: docker build -t order-platform-mlops .
