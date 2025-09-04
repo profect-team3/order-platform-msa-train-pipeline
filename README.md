@@ -192,3 +192,98 @@ docker exec -it <container_id> uv run airflow users create --username admin --pa
 ```
 
 **개발 참고**: 기본적으로 인증이 비활성화되어 개발이 쉽습니다. 인증이 필요하면 Dockerfile에서 `AIRFLOW__WEBSERVER__SIMPLE_AUTH_MANAGER_ALL_ADMINS` 환경 변수를 제거하세요.
+
+## 데이터 버전 관리 (DVC)
+
+이 프로젝트는 DVC(Data Version Control)를 사용하여 데이터 파일의 버전을 관리합니다. DVC는 Git처럼 데이터 변경 사항을 추적하고, 대용량 파일을 효율적으로 처리합니다.
+
+### DVC 설치 및 초기화
+
+1. DVC 설치 (uv 사용):
+   ```bash
+   uv add dvc
+   ```
+
+2. DVC 초기화 (프로젝트 루트에서):
+   ```bash
+   uv run dvc init
+   ```
+   - `.dvc/` 폴더와 `.dvcignore` 파일이 생성됩니다.
+   - Git에 `.dvc` 폴더를 추가하세요: `git add .dvc`
+
+### 데이터 파일 추적
+
+1. 데이터 파일 추가:
+   ```bash
+   dvc add data/forecast_data_featured.csv
+   ```
+   - `data/forecast_data_featured.csv.dvc` 파일이 생성됩니다.
+   - 원본 파일은 `.gitignore`에 추가되어 Git에서 제외됩니다.
+
+2. Git 커밋:
+   ```bash
+   git add data/forecast_data_featured.csv.dvc .gitignore
+   git commit -m "Add data file with DVC tracking"
+   ```
+
+### DVC 원격 저장소 설정 (선택)
+
+대용량 데이터를 클라우드에 저장하려면 원격 저장소를 설정하세요:
+
+1. Google Drive 예시:
+   ```bash
+   dvc remote add -d myremote gdrive://folder-id
+   ```
+
+2. AWS S3 예시:
+   ```bash
+   dvc remote add -d myremote s3://mybucket/path
+   ```
+
+3. 데이터 푸시:
+   ```bash
+   dvc push
+   ```
+
+4. 데이터 풀:
+   ```bash
+   dvc pull
+   ```
+
+### DVC 상태 및 변경 사항 확인
+
+- 상태 확인:
+  ```bash
+  dvc status
+  ```
+
+- 변경 사항 비교:
+  ```bash
+  dvc diff
+  ```
+
+- 데이터 재현 (스크립트 실행):
+  ```bash
+  dvc repro
+  ```
+
+### 워크플로우 예시
+
+1. 시뮬레이션 데이터 생성:
+   ```bash
+   uv run python notebooks/generate_simulated_data.py
+   ```
+
+2. DVC로 추적:
+   ```bash
+   dvc add data/forecast_data_featured.csv
+   git add data/forecast_data_featured.csv.dvc
+   git commit -m "Update simulated data"
+   ```
+
+3. 원격에 푸시:
+   ```bash
+   dvc push
+   ```
+
+DVC를 사용하면 데이터 변경 사항을 Git처럼 관리할 수 있어, 실험 재현성과 협업이 용이합니다.

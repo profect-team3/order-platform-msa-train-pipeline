@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import random
+import os  # 추가: 폴더 생성을 위해
 
 # --- 시뮬레이션 설정 ---
 START_DATE = datetime(2024, 1, 1)
@@ -94,7 +95,12 @@ def generate_data():
 if __name__ == "__main__":
     print("피처가 추가된 시계열 데이터 생성을 시작합니다...")
     forecast_df = generate_data()
-    output_filename = "forecast_data_featured.csv"
+    
+    # 폴더 지정 (관례에 따라 data/ 폴더 사용)
+    output_dir = "data"
+    os.makedirs(output_dir, exist_ok=True)  # 폴더가 없으면 생성
+    output_filename = os.path.join(output_dir, "forecast_data_featured.csv")
+    
     forecast_df.to_csv(output_filename, index=False, encoding='utf-8-sig')
     print(f"데이터 생성 완료! '{output_filename}' 파일에 저장되었습니다.")
     print("생성된 데이터 컬럼:")
