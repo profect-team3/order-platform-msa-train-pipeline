@@ -3493,14 +3493,14 @@ dependencies = [
     { name = "autogluon-timeseries" },
     { name = "dvc" },
     { name = "mlflow" },
-    { name = "notebook" },
-    { name = "pandas-stubs" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
     { name = "nbformat" },
+    { name = "notebook" },
+    { name = "pandas-stubs" },
     { name = "plotly" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -3515,14 +3515,14 @@ requires-dist = [
     { name = "autogluon-timeseries", specifier = ">=1.4.1b20250904" },
     { name = "dvc", specifier = ">=3.63.0" },
     { name = "mlflow", specifier = ">=3.3.2" },
-    { name = "notebook", specifier = ">=7.4.5" },
-    { name = "pandas-stubs", specifier = "==2.3.2.250827" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel", specifier = ">=6.30.1" },
     { name = "nbformat", specifier = ">=5.10.4" },
+    { name = "notebook", specifier = ">=7.4.5" },
+    { name = "pandas-stubs", specifier = "==2.3.2.250827" },
     { name = "plotly", specifier = ">=6.3.0" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=8.4.1" },
