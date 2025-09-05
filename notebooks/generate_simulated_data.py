@@ -43,7 +43,7 @@ CONFIG = {
             "아이스크림": ["바닐라", "초코", "딸기", "민트초코"]
         }
     },
-    "output_dir": "data",
+    "output_dir": "../data",
     "output_filename": "forecast_data_featured.csv"
 }
 
