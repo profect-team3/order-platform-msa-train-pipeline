@@ -223,6 +223,7 @@ mlartifacts/
 # Models
 models/*.pkl
 models/*.joblib
+AutogluonModels/
 
 # Data
 data/*.csv
