@@ -6,6 +6,15 @@ from datetime import datetime, timedelta
 
 import pendulum
 from airflow.sdk import dag, task
+# Set environment variables BEFORE any heavy imports
+os.environ['PYTORCH_MPS_DISABLE'] = '1'
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+os.environ['AUTOGLUON_USE_CPU'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
+# NOTE: Do NOT import torch or call multiprocessing.start_method at module scope.
+# Initialize multiprocessing and torch inside each task to avoid MPS fork-safety issues.
 
 # Global variables
 DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-msa-train-pipeline/data/forecast_data_featured.csv'
@@ -83,32 +92,34 @@ def chronos_train_dag():
         #### Train Model Task
         Train the model using AutoGluon and log to MLflow.
         """
-        import mlflow
-        from autogluon.timeseries import TimeSeriesDataFrame
+        # --- ensure this runs before any heavy imports or threads are created ---
         import os
-        import shutil
-        
-        # Clean up existing model directory
-        if os.path.exists('/tmp/autogluon_models'):
-            shutil.rmtree('/tmp/autogluon_models')
-        
-        # Set environment variables BEFORE importing torch
-        # os.environ['AUTOGLUON_USE_CPU'] = '1'
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
         os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-        # os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        # os.environ['PYTORCH_MPS_DISABLE'] = '1'
-        # os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
-        # os.environ['OMP_NUM_THREADS'] = '1'  # Limit OpenMP threads
-        # os.environ['MKL_NUM_THREADS'] = '1'  # Limit MKL threads
-        
-        # Now import torch and force CPU mode
-        # import torch
-        # torch.set_default_device('cpu')
-        
-        # Disable MPS backend explicitly
+        os.environ['AUTOGLUON_USE_CPU'] = '1'
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['OMP_NUM_THREADS'] = '1'
+        os.environ['MKL_NUM_THREADS'] = '1'
+
+        import multiprocessing as mp
+        mp.set_start_method('spawn', force=True)
+
+        import torch
+        torch.set_default_device('cpu')
         if hasattr(torch.backends, 'mps'):
             torch.backends.mps.is_available = lambda: False
             torch.backends.mps.is_built = lambda: False
+
+        import mlflow
+        from autogluon.timeseries import TimeSeriesDataFrame
+        import shutil
+
+        MODEL_DIR = '/tmp/autogluon_models'
+
+        # Clean up existing model directory
+        if os.path.exists(MODEL_DIR):
+            shutil.rmtree(MODEL_DIR)
         
         logging.info("Starting train_model: Training the model")
         try:
@@ -122,8 +133,9 @@ def chronos_train_dag():
             
             from autogluon.timeseries import TimeSeriesPredictor
             
-            with mlflow.start_run():
-                predictor = TimeSeriesPredictor(prediction_length=PREDICTION_LENGTH, path='/tmp/autogluon_models').fit(
+            with mlflow.start_run() as run:
+                run_id = run.info.run_id
+                predictor = TimeSeriesPredictor(prediction_length=PREDICTION_LENGTH, path=MODEL_DIR).fit(
                     train_data=train_data,
                     hyperparameters={
                         "Chronos": [
@@ -132,14 +144,13 @@ def chronos_train_dag():
                             },
                             {
                                 "model_path": "bolt_small",
-                                "fine_tune": True,
+                                "fine_tune": False,
                                 "device": "cpu",
-                                "num_workers": 0,
-                                "ag_args": {"name_suffix": "FineTuned"},
+                                "ag_args": {"name_suffix": "ZeroShot_Fast"},
                             },
                         ] 
                     },
-                    time_limit=20,  # 60 seconds (1 minute)
+                    time_limit=60,  # 60 seconds (1 minute)
                     enable_ensemble=False
                 )
                 
@@ -165,126 +176,156 @@ def chronos_train_dag():
                 best_score = leaderboard['score_val'].max()
                 mlflow.log_metric("best_model_val_score", best_score)
                 
+                # Ensure predictor saved to MODEL_DIR
                 predictor.save()
-                mlflow.log_artifact('/tmp/predictor', 'predictor')
+                mlflow.log_artifact(MODEL_DIR, 'predictor')
         except Exception as e:
             logging.error(f"MLflow connection failed: {e}")
             raise
         logging.info("Finished train_model: Model training completed")
-        return predictor
+        # Return both model path and run_id for downstream tasks
+        return {"model_path": MODEL_DIR, "run_id": run_id}
 
     @task()
-    def predict(predictor, train_data_df):
+    def predict(model_info, train_data_df):
         """
         #### Predict Task
         Make predictions using the trained model.
         """
+
         import mlflow
-        from autogluon.timeseries import TimeSeriesDataFrame
+        from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
         import torch
-        
-        # Set environment variables and disable MPS
+
+        # Ensure CPU-only and disable MPS before loading
         os.environ['PYTORCH_MPS_DISABLE'] = '1'
         os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
         torch.set_default_device('cpu')
         if hasattr(torch.backends, 'mps'):
             torch.backends.mps.is_available = lambda: False
             torch.backends.mps.is_built = lambda: False
-        
+
         logging.info("Starting predict: Making predictions")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
+
+        # Load the AutoGluon TimeSeriesPredictor from the given path
+        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+
         predictions = predictor.predict(train_data)
         logging.info("Finished predict: Predictions generated")
-        
-        # Log predictions to MLflow
-        predictions.to_csv('/tmp/predictions.csv')
-        with mlflow.start_run():
-            mlflow.log_artifact('/tmp/predictions.csv', 'predictions')
-        
-        return predictions
 
-    @task()
-    def evaluate(predictor, test_data_df):
+        # Log predictions to the same MLflow run
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        with mlflow.start_run(run_id=model_info['run_id']):
+            mlflow.log_artifact('/tmp/predictions.csv', 'predictions')
+        return predictions.to_data_frame()
+
+    @task(multiple_outputs=True)
+    def evaluate(model_info, test_data_df):
         """
         #### Evaluate Task
         Evaluate the model and log leaderboard.
         """
+
         import mlflow
-        from autogluon.timeseries import TimeSeriesDataFrame
+        from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
         import torch
-        
-        # Set environment variables and disable MPS
-        # os.environ['PYTORCH_MPS_DISABLE'] = '1'
-        # os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
-        # torch.set_default_device('cpu')
-        # if hasattr(torch.backends, 'mps'):
-        #     torch.backends.mps.is_available = lambda: False
-        #     torch.backends.mps.is_built = lambda: False
-        
+
+        # Ensure CPU-only and disable MPS before loading
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        torch.set_default_device('cpu')
+        if hasattr(torch.backends, 'mps'):
+            torch.backends.mps.is_available = lambda: False
+            torch.backends.mps.is_built = lambda: False
+
         logging.info("Starting evaluate: Evaluating the model")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         test_data = TimeSeriesDataFrame.from_data_frame(test_data_df)
+
+        # Load the AutoGluon TimeSeriesPredictor from the given path
+        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+
         leaderboard = predictor.leaderboard(test_data)
         leaderboard.to_csv('/tmp/leaderboard.csv')
-        
-        # Log leaderboard to MLflow
-        with mlflow.start_run():
+
+        # Log leaderboard to the same MLflow run
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        with mlflow.start_run(run_id=model_info['run_id']):
             mlflow.log_artifact('/tmp/leaderboard.csv', 'leaderboard')
-        
+
         logging.info("Finished evaluate: Evaluation completed")
-        return leaderboard
+        return {"leaderboard_path": '/tmp/leaderboard.csv'}
 
     @task()
-    def visualize(predictor, data_df, predictions):
+    def visualize(model_info, data_df, predictions):
         """
         #### Visualize Task
         Generate and save visualization plot.
         """
         import mlflow
-        from autogluon.timeseries import TimeSeriesDataFrame
+        from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
         import torch
-        
-        # Set environment variables and disable MPS
+        import random
+        import matplotlib
+        matplotlib.use('Agg')  # Use non-interactive backend
+
+        # Set environment variables and disable MPS before loading
         os.environ['PYTORCH_MPS_DISABLE'] = '1'
         os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        os.environ['AUTOGLUON_USE_CPU'] = '1'
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['OMP_NUM_THREADS'] = '1'
+        os.environ['MKL_NUM_THREADS'] = '1'
+
+        import multiprocessing as mp
+        mp.set_start_method('spawn', force=True)
+
         torch.set_default_device('cpu')
         if hasattr(torch.backends, 'mps'):
             torch.backends.mps.is_available = lambda: False
             torch.backends.mps.is_built = lambda: False
-        
+
         logging.info("Starting visualize: Generating visualization")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         data = TimeSeriesDataFrame.from_data_frame(data_df)
-        
+        predictions_ts = TimeSeriesDataFrame.from_data_frame(predictions)
+
         # Randomly select a subset of item_ids for visualization
         item_ids_to_visualize = random.sample(list(data.item_ids), min(10, len(data.item_ids)))  # Randomly select up to 10 items for visualization
-        
+
+        # Load the AutoGluon TimeSeriesPredictor from the given path
+        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+
         fig = predictor.plot(
             data=data,
-            predictions=predictions,
+            predictions=predictions_ts,
             item_ids=item_ids_to_visualize,  # Limit to randomly selected item_ids
             max_history_length=200,
         )
         fig.savefig('/tmp/forecast_plot.png')
-        
-        # Log visualization to MLflow
-        with mlflow.start_run():
+
+        # Log visualization to the same MLflow run
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        with mlflow.start_run(run_id=model_info['run_id']):
             mlflow.log_artifact('/tmp/forecast_plot.png', 'forecast_plot')
-        
+
         logging.info("Finished visualize: Visualization saved")
 
     @task()
-    def save_model(predictor):
+    def save_model(model_info):
         """
         #### Save Model Task
         Save the model (additional saving if needed).
         """
         logging.info("Starting save_model: Saving the model")
-        # Model already saved in train_model, but can add additional saving if needed
+        # Model already saved in train_model at model_path; no action needed by default
+        logging.info(f"Model is available at: {model_info['model_path']}")
         logging.info("Finished save_model: Model saving completed")
 
     # Build the flow
@@ -293,11 +334,11 @@ def chronos_train_dag():
     train_test_result = train_test_split(data)
     train_data = train_test_result['train_data']
     test_data = train_test_result['test_data']
-    predictor = train_model(train_data)
-    predictions = predict(predictor, train_data)
-    leaderboard = evaluate(predictor, test_data)
-    visualize(predictor, test_data, predictions)  # Use test data for visualization
-    save_model(predictor)
+    model_info = train_model(train_data)
+    predictions = predict(model_info, train_data)
+    leaderboard_path = evaluate(model_info, test_data)
+    visualize(model_info, test_data, predictions)  # Use test data for visualization
+    save_model(model_info)
 
 # Invoke the DAG
 chronos_train_dag()
