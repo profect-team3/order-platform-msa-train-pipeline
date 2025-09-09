@@ -210,6 +210,81 @@ export MLFLOW_MODEL_NAME=order-forecast
 export MLFLOW_MODEL_STAGE=Production
 ```
 
+## 사용 예시 모음
+
+### 1) 로컬에서 MLflow 서버(S3 아티팩트) 기동
+```bash
+export MLFLOW_BACKEND_STORE_URI=sqlite:///mlruns.db
+export MLFLOW_ARTIFACT_ROOT=s3://my-mlflow-artifacts
+export AWS_ACCESS_KEY_ID=... 
+export AWS_SECRET_ACCESS_KEY=... 
+export AWS_DEFAULT_REGION=ap-northeast-2
+# (선택) MinIO 등 S3 호환 스토리지 사용 시
+export MLFLOW_S3_ENDPOINT_URL=https://s3.my-provider.com
+
+docker-compose up --build
+```
+
+### 2) 노트북 스크립트로 학습 + S3 업로드 + MLflow 기록
+```bash
+# uv 의존성 설치
+uv sync
+
+# MLflow 트래킹 서버 지정
+export MLFLOW_TRACKING_URI=http://localhost:8001
+export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
+
+# S3 업로드 설정
+export S3_UPLOAD=true
+export S3_BUCKET=my-ml-models
+export S3_PREFIX=order-forecast
+
+# 학습 실행
+uv run python notebooks/train.py
+
+# 결과 확인: MLflow UI(http://localhost:8001)
+# - Artifacts: s3/s3_model_uri.txt
+# - Tags: s3_model_uri = s3://my-ml-models/order-forecast/predictor/<run_id>
+```
+
+### 3) 스크립트 학습 + 모델 레지스트리 등록
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:8001
+export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
+export MLFLOW_REGISTERED_MODEL_NAME=order-forecast
+
+uv run python scripts/train.py
+
+# 등록된 모델 확인: MLflow UI의 Models 탭
+```
+
+### 4) infer 서비스에서 레지스트리 모델 서빙
+```bash
+# 모델 스테이지 기반으로 사용 (권장)
+export MLFLOW_TRACKING_URI=http://localhost:8001
+export MLFLOW_MODEL_NAME=order-forecast
+export MLFLOW_MODEL_STAGE=Production
+
+# 또는 특정 Run 아티팩트 직접 지정
+# export MODEL_URI=runs:/<run_id>/artifacts/model
+
+# 로컬 실행
+uv run uvicorn app.main:app --host 0.0.0.0 --port 9082
+
+# Docker 실행 (infer 저장소에서)
+# docker build -t order-platform-msa-infer .
+# docker run -p 9082:9082 \
+#   -e MLFLOW_TRACKING_URI=http://host.docker.internal:8001 \
+#   -e MLFLOW_MODEL_NAME=order-forecast \
+#   -e MLFLOW_MODEL_STAGE=Production \
+#   order-platform-msa-infer
+```
+
+### 5) S3 권한 부여 모범사례
+- 로컬/개발: `.env` 또는 쉘 환경변수로 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 설정
+- 클라우드: EC2/EKS/ECS의 IAM Role을 사용해 키 무주입 운영 (권장)
+- S3 호환 스토리지: `MLFLOW_S3_ENDPOINT_URL`로 엔드포인트 지정
+
 볼륨 마운트를 통해 로컬 파일 변경사항이 컨테이너에 반영됩니다.
 
 ## 문제 해결
