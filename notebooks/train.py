@@ -121,6 +121,17 @@ def train_model(train_data_df):
             upload_prefix = f"{S3_PREFIX.rstrip('/')}/predictor/{run_id}"
             logger.info(f"Uploading predictor directory to s3://{S3_BUCKET}/{upload_prefix}")
             upload_dir_to_s3(predictor.path, S3_BUCKET, upload_prefix)
+            # Record uploaded S3 URI as MLflow artifact and tag
+            s3_uri_prefix = f"s3://{S3_BUCKET}/{upload_prefix}"
+            try:
+                s3_uri_file = '/tmp/s3_model_uri.txt'
+                with open(s3_uri_file, 'w') as f:
+                    f.write(s3_uri_prefix)
+                mlflow.log_artifact(s3_uri_file, 's3')
+                mlflow.set_tag('s3_model_uri', s3_uri_prefix)
+                logger.info(f"Logged S3 URI to MLflow: {s3_uri_prefix}")
+            except Exception as e:
+                logger.error(f"Failed to log S3 URI to MLflow: {e}")
         
         
     except Exception as e:
