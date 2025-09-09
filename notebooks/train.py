@@ -4,6 +4,8 @@ import mlflow
 import os
 import logging
 import random
+import boto3
+from botocore.exceptions import BotoCoreError, NoCredentialsError
 
 # Ensure /tmp directory exists
 os.makedirs('/tmp', exist_ok=True)
@@ -11,7 +13,24 @@ os.makedirs('/tmp', exist_ok=True)
 # Global variables
 DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-msa-train-pipeline/data/forecast_data_featured.csv'
 PREDICTION_LENGTH = 24
-MLFLOW_TRACKING_URI = 'http://localhost:5001'  # MLflow server on port 5001
+MLFLOW_TRACKING_URI = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5001')  # MLflow server on port 5001
+S3_UPLOAD = os.getenv('S3_UPLOAD', 'false').lower() == 'true'
+S3_BUCKET = os.getenv('S3_BUCKET')
+S3_PREFIX = os.getenv('S3_PREFIX', 'models/')
+
+def upload_dir_to_s3(local_dir: str, bucket: str, prefix: str) -> None:
+    try:
+        s3_client = boto3.client('s3')
+        for root, _, files in os.walk(local_dir):
+            for file_name in files:
+                local_path = os.path.join(root, file_name)
+                rel_path = os.path.relpath(local_path, start=local_dir)
+                s3_key = f"{prefix.rstrip('/')}/{rel_path}"
+                s3_client.upload_file(local_path, bucket, s3_key)
+                logger.info(f"Uploaded to s3://{bucket}/{s3_key}")
+    except (BotoCoreError, NoCredentialsError) as e:
+        logger.error(f"S3 upload failed: {e}")
+        raise
 
 def load_data():
     """Load data from CSV and convert to TimeSeriesDataFrame."""
@@ -92,8 +111,16 @@ def train_model(train_data_df):
         mlflow.log_metric("best_model_val_score", best_score)
         
         predictor.save()
-        
+
         mlflow.log_artifact(predictor.path, 'predictor')
+
+        # Optional: upload trained predictor directory to S3
+        if S3_UPLOAD and S3_BUCKET:
+            active_run = mlflow.active_run()
+            run_id = active_run.info.run_id if active_run is not None else 'no-run'
+            upload_prefix = f"{S3_PREFIX.rstrip('/')}/predictor/{run_id}"
+            logger.info(f"Uploading predictor directory to s3://{S3_BUCKET}/{upload_prefix}")
+            upload_dir_to_s3(predictor.path, S3_BUCKET, upload_prefix)
         
         
     except Exception as e:
