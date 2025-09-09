@@ -176,6 +176,39 @@ docker-compose up --build
 서비스:
 - **Airflow**: http://localhost:8000
 - **MLflow**: http://localhost:8001
+## MLflow + S3 아티팩트 설정
+
+MLflow 서버를 S3를 아티팩트 스토어로 사용하도록 구성할 수 있습니다. 아래 환경변수를 설정한 뒤 Compose를 실행하세요.
+
+```bash
+export MLFLOW_BACKEND_STORE_URI=sqlite:///mlruns.db   # 또는 postgresql://...
+export MLFLOW_ARTIFACT_ROOT=s3://my-mlflow-artifacts
+export AWS_ACCESS_KEY_ID=XXXXXXXX
+export AWS_SECRET_ACCESS_KEY=YYYYYYYY
+export AWS_DEFAULT_REGION=ap-northeast-2
+# (선택) 커스텀 S3 호환 스토리지 사용 시
+export MLFLOW_S3_ENDPOINT_URL=https://s3.my-provider.com
+
+docker-compose up --build
+```
+
+학습 스크립트 실행 시 MLflow 트래킹 서버 및 등록명 지정:
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:8001
+export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
+export MLFLOW_REGISTERED_MODEL_NAME=order-forecast
+
+uv run python scripts/train.py
+```
+
+등록된 모델은 infer 서비스에서 다음과 같이 사용합니다:
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:8001
+export MLFLOW_MODEL_NAME=order-forecast
+export MLFLOW_MODEL_STAGE=Production
+```
 
 볼륨 마운트를 통해 로컬 파일 변경사항이 컨테이너에 반영됩니다.
 
