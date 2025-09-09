@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- 설정 분리 ---
 CONFIG = {
-    "start_date": datetime(2022, 1, 1),
-    "num_days": 1095,  # 3년
+    "start_date": datetime(2025, 8, 1),
+    "num_days": 7,  # 3년
     "regions": ["강남구", "서초구", "송파구", "마포구", "영등포구", "용산구", "성동구", "광진구", "중구", "종로구"],  # 한글 지역 리스트
     "region_multipliers": {  # 지역별 주문량 multiplier (인구/소득 기반)
         "강남구": 1.5,  # 부촌, 높음
@@ -44,7 +44,7 @@ CONFIG = {
         }
     },
     "output_dir": "../data",
-    "output_filename": "forecast_data_featured.csv"
+    "output_filename": "request_from_forecast_service.csv"
 }
 
 def generate_store_profiles(num_stores):
@@ -81,7 +81,7 @@ def generate_store_profiles(num_stores):
                 "start_day": np.random.randint(0, CONFIG["num_days"] - 60),  # 시작일
                 "duration": 60,  # 2개월 (60일)
                 "multiplier": np.random.uniform(1.5, 3.0)  # 증가 배수
-            } if np.random.random() < 0.2 else None  # 30% 확률로 이벤트
+            } if CONFIG["num_days"] >= 60 and np.random.random() < 0.2 else None  # 20% 확률로 이벤트
         }
     return profiles
 
@@ -165,10 +165,10 @@ def generate_data(num_stores=5):
                     "hour": current_time.hour,
                     "min_order_amount": profile["min_order_amount"],
                     "avg_rating": avg_rating,
-                    "receipt_delivery_ratio": delivery_ratio * np.random.normal(1.0, 0.05),
-                    "receipt_take_out_ratio": (1 - delivery_ratio) * np.random.normal(1.0, 0.05),
-                    "payment_simple_pay_ratio": simple_pay_ratio * np.random.normal(1.0, 0.05),
-                    "payment_credit_card_ratio": (1 - simple_pay_ratio) * np.random.normal(1.0, 0.05),
+                    # "receipt_delivery_ratio": delivery_ratio * np.random.normal(1.0, 0.05),
+                    # "receipt_take_out_ratio": (1 - delivery_ratio) * np.random.normal(1.0, 0.05),
+                    # "payment_simple_pay_ratio": simple_pay_ratio * np.random.normal(1.0, 0.05),
+                    # "payment_credit_card_ratio": (1 - simple_pay_ratio) * np.random.normal(1.0, 0.05),
                 })
                 pbar.update(1)
 
@@ -182,7 +182,7 @@ def generate_data(num_stores=5):
 
 if __name__ == "__main__":
     np.random.seed(42)  # 재현성
-    num_stores = 30  # 가게 수 100개로 늘림
+    num_stores = 1  # 가게 수 100개로 늘림
     forecast_df = generate_data(num_stores)
 
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
