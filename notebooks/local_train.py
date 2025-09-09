@@ -5,6 +5,10 @@ import os
 import logging
 import random
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Ensure /tmp directory exists
 os.makedirs('/tmp', exist_ok=True)
 
@@ -69,13 +73,13 @@ def train_model(train_data_df):
                     },
                 ]
             },
-            time_limit=10,  # 5 minutes
+            time_limit=60,
             enable_ensemble=False,
         )
         
         # Log hyperparameters
         mlflow.log_param("prediction_length", PREDICTION_LENGTH)
-        mlflow.log_param("time_limit", 10)
+        mlflow.log_param("time_limit", 600)
         mlflow.log_param("enable_ensemble", False)
         
         leaderboard = predictor.leaderboard()
@@ -88,13 +92,39 @@ def train_model(train_data_df):
                 mlflow.log_metric(f"{sanitized_model_name}_pred_time_val", row['pred_time_val'])
         
         # Log best model score
-        best_score = leaderboard['score_val'].max()
-        mlflow.log_metric("best_model_val_score", best_score)
+        if not leaderboard.empty:
+            best_score = leaderboard['score_val'].max()
+            mlflow.log_metric("best_model_val_score", best_score)
         
         predictor.save()
         
-        mlflow.log_artifact(predictor.path, 'predictor')
+        # Check if predictor path exists
+        if os.path.exists(predictor.path):
+            mlflow.log_artifact(predictor.path, 'predictor')
+            logger.info(f"Logged predictor artifact from {predictor.path}")
+        else:
+            logger.error(f"Predictor path {predictor.path} does not exist")
+            raise FileNotFoundError(f"Predictor path {predictor.path} does not exist")
         
+        # Register model only if models were trained
+        if not leaderboard.empty:
+            model_uri = f"runs:/{mlflow.active_run().info.run_id}/artifacts/predictor"
+            # Wait a bit for artifact to be logged
+            import time
+            time.sleep(2)
+            model_version = mlflow.register_model(model_uri, "latest")
+            
+            # Transition to Production stage
+            client = mlflow.MlflowClient()
+            client.transition_model_version_stage(
+                name="latest",
+                version=model_version.version,
+                stage="Production"
+            )
+            
+            logger.info(f"Model registered as 'latest' version {model_version.version} and transitioned to Production stage")
+        else:
+            logger.warning("No models were trained. Skipping model registration.")
         
     except Exception as e:
         logger.error(f"MLflow connection failed: {e}")

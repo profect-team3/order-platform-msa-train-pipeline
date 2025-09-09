@@ -150,7 +150,7 @@ def chronos_train_dag():
                             },
                         ] 
                     },
-                    time_limit=60,  # 60 seconds (1 minute)
+                    time_limit=300,  # 60 seconds (1 minute)
                     enable_ensemble=False
                 )
                 
