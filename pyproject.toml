@@ -6,9 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "apache-airflow>=3.0.6",
-    "autogluon-timeseries>=1.4.1b20250904",
+    "autogluon-timeseries",
     "dvc>=3.63.0",
     "mlflow>=3.3.2",
+    "boto3",
+    "s3fs",
+    "python-dotenv",
 ]
 
 [dependency-groups]
