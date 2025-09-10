@@ -3,10 +3,10 @@ name = "order-platform-msa-train-pipeline"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "apache-airflow>=3.0.6",
-    "autogluon-timeseries",
+    "autogluon-timeseries==1.4.0",
     "dvc>=3.63.0",
     "mlflow>=3.3.2",
     "boto3",
