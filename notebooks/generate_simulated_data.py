@@ -11,7 +11,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- 설정 분리 ---
 CONFIG = {
     "start_date": datetime(2025, 8, 1),
-    "num_days": 7,  # 3년
+    "num_days": 7,
+    "num_stores": 1,
+    "output_dir": "./data",
+    "output_filename": "example_infer_data.csv",
+
     "regions": ["강남구", "서초구", "송파구", "마포구", "영등포구", "용산구", "성동구", "광진구", "중구", "종로구"],  # 한글 지역 리스트
     "region_multipliers": {  # 지역별 주문량 multiplier (인구/소득 기반)
         "강남구": 1.5,  # 부촌, 높음
@@ -42,9 +46,7 @@ CONFIG = {
             "쿠키": ["초코칩쿠키", "오트밀쿠키", "마카다미아쿠키", "레이즌쿠키"],
             "아이스크림": ["바닐라", "초코", "딸기", "민트초코"]
         }
-    },
-    "output_dir": "../data",
-    "output_filename": "request_from_forecast_service.csv"
+    }
 }
 
 def generate_store_profiles(num_stores):
@@ -65,7 +67,9 @@ def generate_store_profiles(num_stores):
         else:  # 디저트
             min_order_amount = np.random.randint(800, 2000)
         profiles[store_id] = {
-            "category": f"{main_cat}/{sub_cat}/{item}",
+            "category_main": main_cat,
+            "category_sub": sub_cat,
+            "category_item": item,
             "region": region,
             "min_order_amount": min_order_amount,
             "base_orders": np.random.randint(10, 21),  # 10-20개로 조정
@@ -85,7 +89,7 @@ def generate_store_profiles(num_stores):
         }
     return profiles
 
-def generate_data(num_stores=5):
+def generate_data(num_stores=CONFIG["num_stores"]):
     """시뮬레이션 데이터 생성"""
     logging.info("데이터 생성을 시작합니다.")
     store_profiles = generate_store_profiles(num_stores)
@@ -94,10 +98,20 @@ def generate_data(num_stores=5):
     end_time = CONFIG["start_date"] + timedelta(days=CONFIG["num_days"])
     time_step = timedelta(hours=1)
     day_count = 0
+    daily_ratings = {} # 일별 평점을 저장할 딕셔너리
 
     total_iterations = (end_time - current_time) // time_step * num_stores
     with tqdm(total=total_iterations, desc="데이터 생성 진행") as pbar:
         while current_time < end_time:
+            # 날짜가 바뀌면 모든 가게의 일별 평점 재계산
+            if current_time.hour == 0:
+                day_count += 1
+                for store_id, profile in store_profiles.items():
+                    rating_noise = np.random.normal(0, 0.05)
+                    daily_avg_rating = round(profile["base_rating"] + rating_noise + day_count * 0.001, 2)
+                    daily_avg_rating = max(3.5, min(5.0, daily_avg_rating))
+                    daily_ratings[store_id] = daily_avg_rating
+
             for store_id, profile in store_profiles.items():
                 # 주문량 계산
                 base_orders = profile["base_orders"]
@@ -137,16 +151,14 @@ def generate_data(num_stores=5):
                 order_count = max(0, order_count)
 
                 # 피처 생성
-                rating_noise = np.random.normal(0, 0.05)
-                avg_rating = round(profile["base_rating"] + rating_noise + day_count * 0.001, 2)
-                avg_rating = max(3.5, min(5.0, avg_rating))
+                avg_rating = daily_ratings[store_id] # 일별 고정된 평점 사용
 
-                if 11 <= current_time.hour <= 13:
-                    delivery_ratio, simple_pay_ratio = 0.6, 0.7
-                elif 18 <= current_time.hour <= 20:
-                    delivery_ratio, simple_pay_ratio = 0.85, 0.6
-                else:
-                    delivery_ratio, simple_pay_ratio = 0.7, 0.5
+                # if 11 <= current_time.hour <= 13:
+                #     delivery_ratio, simple_pay_ratio = 0.6, 0.7
+                # elif 18 <= current_time.hour <= 20:
+                #     delivery_ratio, simple_pay_ratio = 0.85, 0.6
+                # else:
+                #     delivery_ratio, simple_pay_ratio = 0.7, 0.5
 
                 # 물가 상승 적용 (연간 3%)
                 year_diff = current_time.year - CONFIG["start_date"].year
@@ -157,7 +169,9 @@ def generate_data(num_stores=5):
                 all_orders.append({
                     "timestamp": current_time,
                     "store_id": store_id,
-                    "category": profile["category"],
+                    "category_main": profile["category_main"],
+                    "category_sub": profile["category_sub"],
+                    "category_item": profile["category_item"],
                     "region": profile["region"],
                     "order_count": order_count,
                     "sales_amount": sales_amount,
@@ -173,17 +187,33 @@ def generate_data(num_stores=5):
                 pbar.update(1)
 
             current_time += time_step
-            if current_time.hour == 0:
-                day_count += 1
-
+            # day_count는 current_time.hour == 0 조건문 안으로 이동
     df = pd.DataFrame(all_orders)
     logging.info("데이터 생성 완료.")
     return df
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate simulated order data.")
+    parser.add_argument("--num_stores", type=int, default=CONFIG["num_stores"], help="Number of stores to simulate.")
+    parser.add_argument("--num_days", type=int, default=CONFIG["num_days"], help="Number of days to simulate.")
+    parser.add_argument("--start_date", type=str, default=CONFIG["start_date"].strftime("%Y-%m-%d"), help="Start date for simulation (YYYY-MM-DD).")
+    parser.add_argument("--output_dir", type=str, default=CONFIG["output_dir"], help="Output directory for the generated CSV.")
+    parser.add_argument("--output_filename", type=str, default=CONFIG["output_filename"], help="Filename for the generated CSV.")
+
+    args = parser.parse_args()
+
     np.random.seed(42)  # 재현성
-    num_stores = 1  # 가게 수 100개로 늘림
-    forecast_df = generate_data(num_stores)
+
+    # Update CONFIG with parsed arguments
+    CONFIG["num_stores"] = args.num_stores
+    CONFIG["num_days"] = args.num_days
+    CONFIG["start_date"] = datetime.strptime(args.start_date, "%Y-%m-%d")
+    CONFIG["output_dir"] = args.output_dir
+    CONFIG["output_filename"] = args.output_filename
+
+    forecast_df = generate_data(args.num_stores)
 
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
     output_path = os.path.join(CONFIG["output_dir"], CONFIG["output_filename"])
