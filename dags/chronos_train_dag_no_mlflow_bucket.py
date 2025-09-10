@@ -6,16 +6,12 @@ from datetime import datetime, timedelta
 
 import pendulum
 from airflow.decorators import dag, task
-# Set environment variables BEFORE any heavy imports
-
 
 # Global variables
-DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-msa-train-pipeline/data/forecast_data_featured.csv'
 PREDICTION_LENGTH = 24
-MLFLOW_TRACKING_URI = 'http://localhost:5001'  # 로컬 MLflow 서버로 변경
 
 @dag(
-    dag_id="chronos_train_dag",
+    dag_id="chronos_train_dag_no_mlflow",
     schedule=None,
     start_date=pendulum.datetime(2025, 9, 5, tz="UTC"),
     catchup=False,
@@ -30,7 +26,7 @@ MLFLOW_TRACKING_URI = 'http://localhost:5001'  # 로컬 MLflow 서버로 변경
         "retry_delay": timedelta(minutes=5),
     }
 )
-def chronos_train_dag():
+def chronos_train_dag_no_mlflow():
     """
     ### ML Pipeline DAG Documentation
     This is a simple ML pipeline example which demonstrates the use of
@@ -42,21 +38,38 @@ def chronos_train_dag():
     def load_data():
         """
         #### Load Data Task
-        Load data from CSV and convert to TimeSeriesDataFrame.
+        Load data from GCS CSV and convert to TimeSeriesDataFrame.
         """
         import pandas as pd
         from autogluon.timeseries import TimeSeriesDataFrame
-        
-        logging.info("Starting load_data: Loading data from CSV")
+        from airflow.providers.google.cloud.hooks.gcs import GCSHook
+
+        BUCKET_NAME = os.environ.get('BUCKET_NAME')
+        OBJECT_NAME = os.environ.get('OBJECT_NAME')
+
+        if not BUCKET_NAME or not OBJECT_NAME:
+            raise ValueError("BUCKET_NAME or OBJECT_NAME environment variables not set")
+
+        logging.info("Starting load_data: Loading data from GCS")
         try:
-            if not os.path.exists(DATA_PATH):
-                raise FileNotFoundError(f"Data file not found: {DATA_PATH}")
-            df = pd.read_csv(DATA_PATH)
+            hook = GCSHook()
+            local_path = '/tmp/forecast_data_featured.csv'
+            hook.download(
+                bucket_name=BUCKET_NAME,
+                object_name=OBJECT_NAME,
+                filename=local_path
+            )
+            if not os.path.exists(local_path):
+                raise FileNotFoundError(f"Data file not found after download: {local_path}")
+            df = pd.read_csv(local_path)
             logging.info(f"Data loaded: {df.shape}")
-            df = df.rename(columns={"store_id": "item_id", "order_count": "target"})
+            df = df.rename(columns={"store_id": "item_id", "real_order_quantity": "target"})
             df = df.sort_values(["item_id", "timestamp"])
             data = TimeSeriesDataFrame.from_data_frame(df)
+            logging.info(f"Data loaded: {data.shape}")
             logging.info("Finished load_data: Data loaded and converted to TimeSeriesDataFrame")
+            # Clean up local file
+            os.remove(local_path)
             # Convert back to pandas DataFrame for XCom serialization
             return data.to_data_frame()
         except Exception as e:
@@ -70,7 +83,7 @@ def chronos_train_dag():
         Split data into train and test sets.
         """
         from autogluon.timeseries import TimeSeriesDataFrame
-        
+
         logging.info("Starting train_test_split: Splitting data into train and test")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         data = TimeSeriesDataFrame.from_data_frame(data_df)
@@ -83,11 +96,8 @@ def chronos_train_dag():
     def train_model(train_data_df):
         """
         #### Train Model Task
-        Train the model using AutoGluon and log to MLflow.
+        Train the model using AutoGluon.
         """
-        
-
-        import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame
         import shutil
 
@@ -96,131 +106,91 @@ def chronos_train_dag():
         # Clean up existing model directory
         if os.path.exists(MODEL_DIR):
             shutil.rmtree(MODEL_DIR)
-        
+
         logging.info("Starting train_model: Training the model")
         try:
             # Convert pandas DataFrame back to TimeSeriesDataFrame
             train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
-            
-            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-            mlflow.set_experiment("chronos_train_dag")  # Set experiment name
-            
-            mlflow.autolog(disable=True)
-            
+
             from autogluon.timeseries import TimeSeriesPredictor
-            
-            with mlflow.start_run() as run:
-                run_id = run.info.run_id
-                predictor = TimeSeriesPredictor(prediction_length=PREDICTION_LENGTH, path=MODEL_DIR).fit(
-                    train_data=train_data,
-                    hyperparameters={
-                        "Chronos": [
-                            {"model_path": "bolt_small",
-                              "ag_args": {"name_suffix": "ZeroShot"}
-                            },
-                            {
-                                "model_path": "bolt_small",
-                                "fine_tune": False,
-                                "device": "cpu",
-                                "ag_args": {"name_suffix": "ZeroShot_Fast"},
-                            },
-                        ] 
-                    },
-                    time_limit=300,  # 60 seconds (1 minute)
-                    enable_ensemble=False
-                )
-                
-                # Re-enable MLflow autologging after AutoGluon training
-                mlflow.autolog()
-                
-                # Log hyperparameters
-                mlflow.log_param("prediction_length", PREDICTION_LENGTH)
-                mlflow.log_param("time_limit", 60)
-                mlflow.log_param("enable_ensemble", False)
-                
-                # Get leaderboard and log metrics
-                leaderboard = predictor.leaderboard()
-                for idx, row in leaderboard.iterrows():
-                    model_name = row['model']
-                    sanitized_model_name = model_name.replace("[", "_").replace("]", "_")
-                    if 'score_val' in row:
-                        mlflow.log_metric(f"{sanitized_model_name}_val_score", row['score_val'])
-                    if 'pred_time_val' in row:
-                        mlflow.log_metric(f"{sanitized_model_name}_pred_time_val", row['pred_time_val'])
-                
-                # Log best model score
-                best_score = leaderboard['score_val'].max()
-                mlflow.log_metric("best_model_val_score", best_score)
-                
-                # Ensure predictor saved to MODEL_DIR
-                predictor.save()
-                mlflow.log_artifact(MODEL_DIR, 'predictor')
+
+            predictor = TimeSeriesPredictor(prediction_length=PREDICTION_LENGTH, path=MODEL_DIR).fit(
+                train_data=train_data,
+                hyperparameters={
+                    "Chronos": [
+                        {"model_path": "bolt_small",
+                         "ag_args": {"name_suffix": "ZeroShot"}
+                         },
+                        {
+                            "model_path": "bolt_small",
+                            "fine_tune": True,
+                            "device": "cpu",
+                            "ag_args": {"name_suffix": "ZeroShot_Fast"},
+                        },
+                    ]
+                },
+                time_limit=10,  # 300 seconds (5 minutes)
+                enable_ensemble=False
+            )
+
+            # Ensure predictor saved to MODEL_DIR
+            predictor.save()
         except Exception as e:
-            logging.error(f"MLflow connection failed: {e}")
+            logging.error(f"Model training failed: {e}")
             raise
         logging.info("Finished train_model: Model training completed")
-        # Return both model path and run_id for downstream tasks
-        return {"model_path": MODEL_DIR, "run_id": run_id}
+        # Return model path for downstream tasks
+        return MODEL_DIR
 
     @task()
-    def predict(model_info, train_data_df):
+    def predict(model_path, train_data_df):
         """
         #### Predict Task
         Make predictions using the trained model.
         """
-
-        import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
+
+        logging.info("Starting predict: Making predictions")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
 
         # Load the AutoGluon TimeSeriesPredictor from the given path
-        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+        predictor = TimeSeriesPredictor.load(model_path)
 
         predictions = predictor.predict(train_data)
         logging.info("Finished predict: Predictions generated")
 
-        # Log predictions to the same MLflow run
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        with mlflow.start_run(run_id=model_info['run_id']):
-            mlflow.log_artifact('/tmp/predictions.csv', 'predictions')
         return predictions.to_data_frame()
 
     @task(multiple_outputs=True)
-    def evaluate(model_info, test_data_df):
+    def evaluate(model_path, test_data_df):
         """
         #### Evaluate Task
         Evaluate the model and log leaderboard.
         """
-
-        import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
+
+        logging.info("Starting evaluate: Evaluating the model")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         test_data = TimeSeriesDataFrame.from_data_frame(test_data_df)
 
         # Load the AutoGluon TimeSeriesPredictor from the given path
-        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+        predictor = TimeSeriesPredictor.load(model_path)
 
         leaderboard = predictor.leaderboard(test_data)
         leaderboard.to_csv('/tmp/leaderboard.csv')
-
-        # Log leaderboard to the same MLflow run
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        with mlflow.start_run(run_id=model_info['run_id']):
-            mlflow.log_artifact('/tmp/leaderboard.csv', 'leaderboard')
 
         logging.info("Finished evaluate: Evaluation completed")
         return {"leaderboard_path": '/tmp/leaderboard.csv'}
 
     @task()
-    def visualize(model_info, data_df, predictions):
+    def visualize(model_path, data_df, predictions):
         """
         #### Visualize Task
         Generate and save visualization plot.
         """
-        import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
         import random
@@ -236,7 +206,7 @@ def chronos_train_dag():
         item_ids_to_visualize = random.sample(list(data.item_ids), min(10, len(data.item_ids)))  # Randomly select up to 10 items for visualization
 
         # Load the AutoGluon TimeSeriesPredictor from the given path
-        predictor = TimeSeriesPredictor.load(model_info['model_path'])
+        predictor = TimeSeriesPredictor.load(model_path)
 
         fig = predictor.plot(
             data=data,
@@ -246,22 +216,17 @@ def chronos_train_dag():
         )
         fig.savefig('/tmp/forecast_plot.png')
 
-        # Log visualization to the same MLflow run
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        with mlflow.start_run(run_id=model_info['run_id']):
-            mlflow.log_artifact('/tmp/forecast_plot.png', 'forecast_plot')
-
         logging.info("Finished visualize: Visualization saved")
 
     @task()
-    def save_model(model_info):
+    def save_model(model_path):
         """
         #### Save Model Task
         Save the model (additional saving if needed).
         """
         logging.info("Starting save_model: Saving the model")
         # Model already saved in train_model at model_path; no action needed by default
-        logging.info(f"Model is available at: {model_info['model_path']}")
+        logging.info(f"Model is available at: {model_path}")
         logging.info("Finished save_model: Model saving completed")
 
     # Build the flow
@@ -270,11 +235,11 @@ def chronos_train_dag():
     train_test_result = train_test_split(data)
     train_data = train_test_result['train_data']
     test_data = train_test_result['test_data']
-    model_info = train_model(train_data)
-    predictions = predict(model_info, train_data)
-    leaderboard_path = evaluate(model_info, test_data)
-    visualize(model_info, test_data, predictions)  # Use test data for visualization
-    save_model(model_info)
+    model_path = train_model(train_data)
+    predictions = predict(model_path, train_data)
+    leaderboard_path = evaluate(model_path, test_data)
+    visualize(model_path, test_data, predictions)  # Use test data for visualization
+    save_model(model_path)
 
 # Invoke the DAG
-chronos_train_dag()
+chronos_train_dag_no_mlflow()

@@ -14,7 +14,7 @@ CONFIG = {
     "num_days": 7,
     "num_stores": 1,
     "output_dir": "./data",
-    "output_filename": "example_infer_data.csv",
+    "output_filename": "example_train_data.csv",
 
     "regions": ["강남구", "서초구", "송파구", "마포구", "영등포구", "용산구", "성동구", "광진구", "중구", "종로구"],  # 한글 지역 리스트
     "region_multipliers": {  # 지역별 주문량 multiplier (인구/소득 기반)
@@ -173,7 +173,7 @@ def generate_data(num_stores=CONFIG["num_stores"]):
                     "category_sub": profile["category_sub"],
                     "category_item": profile["category_item"],
                     "region": profile["region"],
-                    "real_order_quatity": order_count,
+                    "real_order_quantity": order_count,
                     "real_sales_revenue": sales_amount,
                     "day_of_week": weekday,
                     "hour": current_time.hour,

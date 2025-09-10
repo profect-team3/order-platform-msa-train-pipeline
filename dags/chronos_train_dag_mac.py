@@ -6,16 +6,24 @@ from datetime import datetime, timedelta
 
 import pendulum
 from airflow.decorators import dag, task
-# Set environment variables BEFORE any heavy imports
 
+# Set environment variables BEFORE any heavy imports
+os.environ['PYTORCH_MPS_DISABLE'] = '1'
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+os.environ['AUTOGLUON_USE_CPU'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
+# NOTE: Do NOT import torch or call multiprocessing.start_method at module scope.
+# Initialize multiprocessing and torch inside each task to avoid MPS fork-safety issues.
 
 # Global variables
-DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-msa-train-pipeline/data/forecast_data_featured.csv'
+DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-msa-train-pipeline/data/example_train_data.csv'
 PREDICTION_LENGTH = 24
 MLFLOW_TRACKING_URI = 'http://localhost:5001'  # 로컬 MLflow 서버로 변경
 
 @dag(
-    dag_id="chronos_train_dag",
+    dag_id="chronos_train_dag_mac",
     schedule=None,
     start_date=pendulum.datetime(2025, 9, 5, tz="UTC"),
     catchup=False,
@@ -53,7 +61,7 @@ def chronos_train_dag():
                 raise FileNotFoundError(f"Data file not found: {DATA_PATH}")
             df = pd.read_csv(DATA_PATH)
             logging.info(f"Data loaded: {df.shape}")
-            df = df.rename(columns={"store_id": "item_id", "order_count": "target"})
+            df = df.rename(columns={"store_id": "item_id", "real_order_quantity": "target"})
             df = df.sort_values(["item_id", "timestamp"])
             data = TimeSeriesDataFrame.from_data_frame(df)
             logging.info("Finished load_data: Data loaded and converted to TimeSeriesDataFrame")
@@ -85,7 +93,24 @@ def chronos_train_dag():
         #### Train Model Task
         Train the model using AutoGluon and log to MLflow.
         """
-        
+        # --- ensure this runs before any heavy imports or threads are created ---
+        import os
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        os.environ['AUTOGLUON_USE_CPU'] = '1'
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['OMP_NUM_THREADS'] = '1'
+        os.environ['MKL_NUM_THREADS'] = '1'
+
+        import multiprocessing as mp
+        mp.set_start_method('spawn', force=True)
+
+        import torch
+        torch.set_default_device('cpu')
+        if hasattr(torch.backends, 'mps'):
+            torch.backends.mps.is_available = lambda: False
+            torch.backends.mps.is_built = lambda: False
 
         import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame
@@ -172,6 +197,17 @@ def chronos_train_dag():
         import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
+        import torch
+
+        # Ensure CPU-only and disable MPS before loading
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        torch.set_default_device('cpu')
+        if hasattr(torch.backends, 'mps'):
+            torch.backends.mps.is_available = lambda: False
+            torch.backends.mps.is_built = lambda: False
+
+        logging.info("Starting predict: Making predictions")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
 
@@ -197,6 +233,17 @@ def chronos_train_dag():
         import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
+        import torch
+
+        # Ensure CPU-only and disable MPS before loading
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        torch.set_default_device('cpu')
+        if hasattr(torch.backends, 'mps'):
+            torch.backends.mps.is_available = lambda: False
+            torch.backends.mps.is_built = lambda: False
+
+        logging.info("Starting evaluate: Evaluating the model")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
         test_data = TimeSeriesDataFrame.from_data_frame(test_data_df)
 
@@ -223,9 +270,27 @@ def chronos_train_dag():
         import mlflow
         from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
         import os
+        import torch
         import random
         import matplotlib
         matplotlib.use('Agg')  # Use non-interactive backend
+
+        # Set environment variables and disable MPS before loading
+        os.environ['PYTORCH_MPS_DISABLE'] = '1'
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'
+        os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        os.environ['AUTOGLUON_USE_CPU'] = '1'
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['OMP_NUM_THREADS'] = '1'
+        os.environ['MKL_NUM_THREADS'] = '1'
+
+        import multiprocessing as mp
+        mp.set_start_method('spawn', force=True)
+
+        torch.set_default_device('cpu')
+        if hasattr(torch.backends, 'mps'):
+            torch.backends.mps.is_available = lambda: False
+            torch.backends.mps.is_built = lambda: False
 
         logging.info("Starting visualize: Generating visualization")
         # Convert pandas DataFrame back to TimeSeriesDataFrame
