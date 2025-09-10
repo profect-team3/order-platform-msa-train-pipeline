@@ -9,8 +9,6 @@ dependencies = [
     "autogluon-timeseries>=1.4.1b20250904",
     "dvc>=3.63.0",
     "mlflow>=3.3.2",
-    "boto3>=1.34.158",
-    "s3fs>=2024.6.1",
 ]
 
 [dependency-groups]
