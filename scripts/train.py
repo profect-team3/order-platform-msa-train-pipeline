@@ -23,7 +23,9 @@ accuracy = accuracy_score(y_test, predictions)
 
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "order-forecast-exp")
-MLFLOW_REGISTERED_MODEL_NAME = os.getenv("MLFLOW_REGISTERED_MODEL_NAME", "order-forecast")
+MLFLOW_REGISTERED_MODEL_NAME = os.getenv(
+    "MLFLOW_REGISTERED_MODEL_NAME", "order-forecast"
+)
 
 if MLFLOW_TRACKING_URI:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
