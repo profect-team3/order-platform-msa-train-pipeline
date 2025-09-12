@@ -4,16 +4,23 @@ import mlflow
 import os
 import logging
 import random
+from dotenv import load_dotenv
+import mlflow.exceptions
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Ensure /tmp directory exists
 os.makedirs('/tmp', exist_ok=True)
 
 # Global variables
-DATA_PATH = '/Users/coldbrew_groom/Documents/order-platform-mlops/order-platform-msa-train-pipeline/data/train_data.csv'
+DATA_PATH = os.getenv('DATA_PATH')
+# 모델 아티팩트 경로는 임시 로컬 경로로 설정
+MODEL_ARTIFACT_PATH = os.getenv('MODEL_ARTIFACT_PATH', '/tmp/model')
 PREDICTION_LENGTH = 24
-MLFLOW_TRACKING_URI = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5001')
-
-
+MLFLOW_TRACKING_URI = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:8001')
+GCS_ARTIFACT_URI = os.getenv('GCS_ARTIFACT_URI')  # e.g., gs://your-bucket/artifacts
 
 # Logger setup
 logger = logging.getLogger(__name__)
@@ -22,35 +29,39 @@ def load_data():
     """Load data from CSV and convert to TimeSeriesDataFrame."""
     logger.info("Starting load_data: Loading data from CSV")
     try:
-        if not os.path.exists(DATA_PATH):
-            raise FileNotFoundError(f"Data file not found: {DATA_PATH}")
         df = pd.read_csv(DATA_PATH)
         logger.info(f"Data loaded: {df.shape}")
-        df = df.rename(columns={"store_id": "item_id", "order_count": "target"})
+        # 'timestamp'가 datetime 타입인지 확인
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df = df.rename(columns={"store_id": "item_id", "real_order_quantity": "target"})
         df = df.sort_values(["item_id", "timestamp"])
         data = TimeSeriesDataFrame.from_data_frame(df)
         logger.info("Finished load_data: Data loaded and converted to TimeSeriesDataFrame")
-        return data.to_data_frame()
+        return data # 수정: to_data_frame()을 제거하여 TimeSeriesDataFrame 객체 반환
     except Exception as e:
         logger.error(f"Error in load_data: {e}")
         raise
 
 
-def train_test_split(data_df):
+def train_test_split(data):
     """Split data into train and test sets."""
     logger.info("Starting train_test_split: Splitting data into train and test")
-    data = TimeSeriesDataFrame.from_data_frame(data_df)
+    # 수정: 이미 TimeSeriesDataFrame이므로 재변환 불필요
     train_data, test_data = data.train_test_split(PREDICTION_LENGTH)
     logger.info("Finished train_test_split: Data split completed")
-    return train_data.to_data_frame(), test_data.to_data_frame()
+    return train_data, test_data # 수정: to_data_frame()을 제거하여 TimeSeriesDataFrame 객체 반환
 
 
-def train_model(train_data_df):
+def train_model(train_data):
     """Train the model using AutoGluon and log to MLflow."""
     logger.info("Starting train_model: Training the model")
+    # 수정: try-except 블록을 더 구체적으로 변경
     try:
-        train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
-        predictor = TimeSeriesPredictor(prediction_length=PREDICTION_LENGTH).fit(
+        # 수정: 이미 TimeSeriesDataFrame이므로 재변환 불필요
+        predictor = TimeSeriesPredictor(
+            path=MODEL_ARTIFACT_PATH,
+            prediction_length=PREDICTION_LENGTH,
+        ).fit(
             train_data=train_data,
             hyperparameters={
                 "Chronos": [
@@ -58,13 +69,13 @@ def train_model(train_data_df):
                     {"model_path": "bolt_small", "fine_tune": True, "ag_args": {"name_suffix": "FineTuned"}},
                 ]
             },
-            time_limit=300,
+            time_limit=60,
             enable_ensemble=False,
         )
 
         # Log hyperparameters
         mlflow.log_param("prediction_length", PREDICTION_LENGTH)
-        mlflow.log_param("time_limit", 10)
+        mlflow.log_param("time_limit", 60) # 수정: fit()의 time_limit과 일치시킴
         mlflow.log_param("enable_ensemble", False)
 
         # Log leaderboard metrics
@@ -84,19 +95,18 @@ def train_model(train_data_df):
         predictor.save()
         mlflow.log_artifact(predictor.path, 'predictor')
 
-        
-
     except Exception as e:
-        logger.error(f"MLflow connection failed: {e}")
+        logger.error(f"Model training or MLflow logging failed: {e}")
         raise
+
     logger.info("Finished train_model: Model training completed")
     return predictor
 
 
-def predict(predictor, train_data_df):
+def predict(predictor, train_data):
     """Make predictions using the trained model."""
     logger.info("Starting predict: Making predictions")
-    train_data = TimeSeriesDataFrame.from_data_frame(train_data_df)
+    # 수정: 이미 TimeSeriesDataFrame이므로 재변환 불필요
     predictions = predictor.predict(train_data)
     logger.info("Finished predict: Predictions generated")
 
@@ -106,10 +116,10 @@ def predict(predictor, train_data_df):
     return predictions
 
 
-def evaluate(predictor, test_data_df):
+def evaluate(predictor, test_data):
     """Evaluate the model and log leaderboard."""
     logger.info("Starting evaluate: Evaluating the model")
-    test_data = TimeSeriesDataFrame.from_data_frame(test_data_df)
+    # 수정: 이미 TimeSeriesDataFrame이므로 재변환 불필요
     leaderboard = predictor.leaderboard(test_data)
     leaderboard.to_csv('/tmp/leaderboard.csv')
     mlflow.log_artifact('/tmp/leaderboard.csv', 'leaderboard')
@@ -117,10 +127,10 @@ def evaluate(predictor, test_data_df):
     return leaderboard
 
 
-def visualize(predictor, data_df, predictions):
+def visualize(predictor, data, predictions):
     """Generate and save visualization plot."""
     logger.info("Starting visualize: Generating visualization")
-    data = TimeSeriesDataFrame.from_data_frame(data_df)
+    # 수정: 이미 TimeSeriesDataFrame이므로 재변환 불필요
     item_ids_to_visualize = random.sample(list(data.item_ids), min(10, len(data.item_ids)))
     fig = predictor.plot(
         data=data,
@@ -136,14 +146,26 @@ def visualize(predictor, data_df, predictions):
 if __name__ == "__main__":
     logger.info("Starting ML pipeline execution")
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+    # Set up experiment with GCS artifact location if not exists
+    try:
+        # artifact_location을 GCS_ARTIFACT_URI로 설정하면 MLflow 서버가 GCS에 아티팩트를 직접 저장합니다.
+        mlflow.create_experiment("ml_pipeline_experiment", artifact_location=GCS_ARTIFACT_URI)
+        logger.info("Created new MLflow experiment with GCS artifact location")
+    except mlflow.exceptions.MlflowException as e:
+        if "already exists" in str(e).lower():
+            logger.info("MLflow experiment already exists, using existing configuration")
+        else:
+            raise
+
     mlflow.set_experiment("ml_pipeline_experiment")
 
     with mlflow.start_run():
-        data_df = load_data()
-        train_data_df, test_data_df = train_test_split(data_df)
-        predictor = train_model(train_data_df)
-        predictions = predict(predictor, train_data_df)
-        leaderboard = evaluate(predictor, test_data_df)
-        visualize(predictor, test_data_df, predictions)
+        data = load_data()
+        train_data, test_data = train_test_split(data)
+        predictor = train_model(train_data)
+        predictions = predict(predictor, train_data)
+        leaderboard = evaluate(predictor, test_data)
+        visualize(predictor, test_data, predictions)
 
-    logger.info("ML pipeline execution completed. Check MLflow UI at http://localhost:5001")
+    logger.info("ML pipeline execution completed. Check MLflow UI at http://localhost:8001")

@@ -2,6 +2,8 @@
 __pycache__/
 *.py[codz]
 *$py.class
+mlruns/
+gs:/
 
 # C extensions
 *.so
