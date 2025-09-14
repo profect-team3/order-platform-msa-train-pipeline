@@ -1,0 +1,72 @@
+import os
+import sys
+import logging
+import pandas as pd
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def main():
+    """
+    Main function to run the preprocessing.
+    """
+    raw_data_path = '/Users/coldbrew/Downloads/mlops-pipeline/order-platform-msa-infer-pipeline/data/consumed_orders.csv'
+    output_dir = '/Users/coldbrew/Downloads/mlops-pipeline/order-platform-msa-train-pipeline/data'
+    output_path = os.path.join(output_dir, 'train_data.csv')
+
+    logging.info(f"Reading raw data from {raw_data_path}")
+    try:
+        # The raw CSV may not have a header, so we name the columns
+        df = pd.read_csv(raw_data_path, header=None, names=['store_id', 'total_price', 'timestamp'])
+    except Exception as e:
+        logging.error(f"Failed to read raw data file: {e}")
+        raise
+
+    logging.info("Preprocessing data...")
+
+    # --- Preprocessing Logic --- #
+
+    # Rename and convert types
+    df.rename(columns={'total_price': 'real_sales_revenue'}, inplace=True)
+    df['real_sales_revenue'] = pd.to_numeric(df['real_sales_revenue'], errors='coerce').fillna(0)
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601', utc=True)
+
+    # Truncate timestamp to the hour for grouping
+    df['timestamp'] = df['timestamp'].dt.floor('H')
+
+    logging.info("Aggregating data to hourly statistics...")
+
+    # Group by hour and store, then aggregate
+    hourly_df = df.groupby(['timestamp', 'store_id']).agg(
+        real_sales_revenue=('real_sales_revenue', 'sum'),
+        real_order_quantity=('store_id', 'count') # Count orders per group
+    ).reset_index()
+
+    # Add time-based features
+    hourly_df['day_of_week'] = hourly_df['timestamp'].dt.dayofweek
+    hourly_df['hour'] = hourly_df['timestamp'].dt.hour
+
+    # Add empty columns for store info as it's not available
+    empty_cols = [
+        'category_main', 'category_sub', 'category_item', 'region',
+        'min_order_amount', 'avg_rating'
+    ]
+    for col in empty_cols:
+        hourly_df[col] = None
+
+    # Ensure all target columns are in the correct order
+    target_columns = [
+        'timestamp', 'store_id', 'category_main', 'category_sub', 'category_item',
+        'region', 'real_order_quantity', 'real_sales_revenue', 'day_of_week',
+        'hour', 'min_order_amount', 'avg_rating'
+    ]
+    hourly_df = hourly_df[target_columns]
+
+    # Save the processed data
+    os.makedirs(output_dir, exist_ok=True)
+    hourly_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+    logging.info(f"Successfully preprocessed data and saved to {output_path}")
+
+if __name__ == "__main__":
+    main()
