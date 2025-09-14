@@ -18,7 +18,6 @@ DATA_PATH = os.getenv('DATA_PATH')
 MODEL_ARTIFACT_PATH = os.getenv('MODEL_ARTIFACT_PATH', '/tmp/model')
 PREDICTION_LENGTH = 24
 MLFLOW_TRACKING_URI = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:8001')
-# GCS_ARTIFACT_URI = os.getenv('GCS_ARTIFACT_URI')  # e.g., gs://your-bucket/artifacts
 
 # Logger setup
 logger = logging.getLogger(__name__)
@@ -62,7 +61,7 @@ def train_model(train_data):
                     {"model_path": "bolt_small", "fine_tune": True, "ag_args": {"name_suffix": "FineTuned"}},
                 ]
             },
-            time_limit=60,
+            time_limit=1200,
             enable_ensemble=False,
         )
 
@@ -137,7 +136,7 @@ if __name__ == "__main__":
     logger.info("Starting ML pipeline execution")
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-    mlflow.set_experiment("ml_pipeline_experiment")
+    mlflow.set_experiment("train_model_20M")
     logger.info("Using MLflow experiment: ml_pipeline_experiment")
 
     with mlflow.start_run():

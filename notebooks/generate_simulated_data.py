@@ -11,10 +11,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- 설정 분리 ---
 CONFIG = {
     "start_date": datetime(2025, 2, 1),
-    "num_days": 180,
-    "num_stores": 10,
+    "num_days": 360,
+    "num_stores": 100,
     "output_dir": "./data",
-    "output_filename": "train_D180_S10.csv",
 
     "regions": ["강남구", "서초구", "송파구", "마포구", "영등포구", "용산구", "성동구", "광진구", "중구", "종로구"],  # 한글 지역 리스트
     "region_multipliers": {  # 지역별 주문량 multiplier (인구/소득 기반)
@@ -200,7 +199,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_days", type=int, default=CONFIG["num_days"], help="Number of days to simulate.")
     parser.add_argument("--start_date", type=str, default=CONFIG["start_date"].strftime("%Y-%m-%d"), help="Start date for simulation (YYYY-MM-DD).")
     parser.add_argument("--output_dir", type=str, default=CONFIG["output_dir"], help="Output directory for the generated CSV.")
-    parser.add_argument("--output_filename", type=str, default=CONFIG["output_filename"], help="Filename for the generated CSV.")
 
     args = parser.parse_args()
 
@@ -211,12 +209,13 @@ if __name__ == "__main__":
     CONFIG["num_days"] = args.num_days
     CONFIG["start_date"] = datetime.strptime(args.start_date, "%Y-%m-%d")
     CONFIG["output_dir"] = args.output_dir
-    CONFIG["output_filename"] = args.output_filename
 
+    output_filename = f"train_D{args.num_days}_S{args.num_stores}.csv"
+    
     forecast_df = generate_data(args.num_stores)
 
-    os.makedirs(CONFIG["output_dir"], exist_ok=True)
-    output_path = os.path.join(CONFIG["output_dir"], CONFIG["output_filename"])
+    os.makedirs(args.output_dir, exist_ok=True)
+    output_path = os.path.join(args.output_dir, output_filename)
     forecast_df.to_csv(output_path, index=False, encoding='utf-8-sig')
     logging.info(f"데이터 저장 완료: {output_path}")
     print("생성된 데이터 컬럼:", forecast_df.columns.tolist())
