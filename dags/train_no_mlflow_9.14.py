@@ -19,6 +19,7 @@ PREDICTION_LENGTH = 24
     dag_id="train_no_mlflow_9.14",
     schedule=None,
     start_date=pendulum.datetime(2025, 9, 5, tz="UTC"),
+    schedule_interval='@weekly',
     catchup=False,
     tags=["ml", "pipeline"],
     default_args={

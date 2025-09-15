@@ -2,21 +2,24 @@ import os
 import sys
 import logging
 import pandas as pd
+import gcsfs
 
-# Setup logging
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+# Setup logging for the DAG file
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def main():
+def _preprocess_data():
     """
-    Main function to run the preprocessing.
+    Function to run the preprocessing logic.
     """
-    raw_data_path = '../order-platform-msa-infer-pipeline/data/consumed_orders.csv'
-    output_dir = './data'
-    output_path = os.path.join(output_dir, 'train_data.csv')
+    raw_data_path = 'gs://us-central1-mlpipeline-comp-9bf7861c-bucket/data/consumed_orders.csv'
+    output_path = 'gs://us-central1-mlpipeline-comp-9bf7861c-bucket/data/train_data.csv'
 
     logging.info(f"Reading raw data from {raw_data_path}")
     try:
-        # The raw CSV may not have a header, so we name the columns
         df = pd.read_csv(raw_data_path)
     except Exception as e:
         logging.error(f"Failed to read raw data file: {e}")
@@ -24,13 +27,9 @@ def main():
 
     logging.info("Preprocessing data...")
 
-    # --- Preprocessing Logic --- #
-    train_target_df = pd.read_csv('./data/example_train_data.csv')
-    print("target-df")
-    print(train_target_df.columns)
-    print(df.columns)
+    logging.info(f"Initial df columns: {df.columns.tolist()}")
     df.rename(columns={'totalPrice': 'real_sales_revenue', 'storeId': 'store_id'}, inplace=True)
-    print(df.columns)
+    logging.info(f"df columns after rename: {df.columns.tolist()}")
     df['real_sales_revenue'] = pd.to_numeric(df['real_sales_revenue'], errors='coerce').fillna(0)
     df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', utc=True)
     df['timestamp'] = df['timestamp'].dt.floor('h')
@@ -53,12 +52,24 @@ def main():
        'category_item', 'region', 'real_order_quantity', 'real_sales_revenue',
        'day_of_week', 'hour', 'min_order_amount', 'avg_rating'
     ]
+    logging.info(f"hourly_df columns before final selection: {hourly_df.columns.tolist()}")
     hourly_df = hourly_df[target_columns]
+    logging.info(f"hourly_df columns after final selection: {hourly_df.columns.tolist()}")
 
-    os.makedirs(output_dir, exist_ok=True)
+    
     hourly_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     logging.info(f"Successfully preprocessed data and saved to {output_path}")
 
-if __name__ == "__main__":
-    main()
+
+with DAG(
+    dag_id='preprocess_data_dag',
+    start_date=datetime(2023, 1, 1),
+    schedule_interval='@weekly',
+    catchup=False,
+    tags=['preprocessing', 'data'],
+) as dag:
+    preprocess_task = PythonOperator(
+        task_id='run_preprocessing',
+        python_callable=_preprocess_data,
+    )
