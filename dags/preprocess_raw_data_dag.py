@@ -17,7 +17,7 @@ def main():
     logging.info(f"Reading raw data from {raw_data_path}")
     try:
         # The raw CSV may not have a header, so we name the columns
-        df = pd.read_csv(raw_data_path, header=None, names=['store_id', 'total_price', 'timestamp'])
+        df = pd.read_csv(raw_data_path)
     except Exception as e:
         logging.error(f"Failed to read raw data file: {e}")
         raise
@@ -25,44 +25,36 @@ def main():
     logging.info("Preprocessing data...")
 
     # --- Preprocessing Logic --- #
-
-    # Rename and convert types
-    df.rename(columns={'total_price': 'real_sales_revenue'}, inplace=True)
+    train_target_df = pd.read_csv('./data/example_train_data.csv')
+    print("target-df")
+    print(train_target_df.columns)
+    print(df.columns)
+    df.rename(columns={'totalPrice': 'real_sales_revenue', 'storeId': 'store_id'}, inplace=True)
+    print(df.columns)
     df['real_sales_revenue'] = pd.to_numeric(df['real_sales_revenue'], errors='coerce').fillna(0)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601', utc=True)
-
-    # Truncate timestamp to the hour for grouping
-    df['timestamp'] = df['timestamp'].dt.floor('H')
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', utc=True)
+    df['timestamp'] = df['timestamp'].dt.floor('h')
 
     logging.info("Aggregating data to hourly statistics...")
 
-    # Group by hour and store, then aggregate
-    hourly_df = df.groupby(['timestamp', 'store_id']).agg(
+    hourly_df = df.groupby([
+        'timestamp', 'store_id', 'category_main', 'category_sub',
+        'category_item', 'region', 'min_order_amount', 'avg_rating'
+    ]).agg(
         real_sales_revenue=('real_sales_revenue', 'sum'),
-        real_order_quantity=('store_id', 'count') # Count orders per group
+        real_order_quantity=('store_id', 'count')
     ).reset_index()
 
-    # Add time-based features
     hourly_df['day_of_week'] = hourly_df['timestamp'].dt.dayofweek
     hourly_df['hour'] = hourly_df['timestamp'].dt.hour
 
-    # Add empty columns for store info as it's not available
-    empty_cols = [
-        'category_main', 'category_sub', 'category_item', 'region',
-        'min_order_amount', 'avg_rating'
-    ]
-    for col in empty_cols:
-        hourly_df[col] = None
-
-    # Ensure all target columns are in the correct order
     target_columns = [
-        'timestamp', 'store_id', 'category_main', 'category_sub', 'category_item',
-        'region', 'real_order_quantity', 'real_sales_revenue', 'day_of_week',
-        'hour', 'min_order_amount', 'avg_rating'
+        'timestamp', 'store_id', 'category_main', 'category_sub',
+       'category_item', 'region', 'real_order_quantity', 'real_sales_revenue',
+       'day_of_week', 'hour', 'min_order_amount', 'avg_rating'
     ]
     hourly_df = hourly_df[target_columns]
 
-    # Save the processed data
     os.makedirs(output_dir, exist_ok=True)
     hourly_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
