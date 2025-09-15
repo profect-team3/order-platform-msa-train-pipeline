@@ -1,5 +1,10 @@
 import logging
 import os
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
+logging.captureWarnings(True)
+logging.getLogger("autogluon").setLevel(logging.DEBUG)
 from datetime import datetime, timedelta
 
 import pendulum
@@ -229,6 +234,8 @@ def chronos_train_dag_no_mlflow():
                 bucket_name=MODEL_BUCKET_NAME, prefix=MODEL_OBJECT_NAME_PREFIX
             )
             for blob_name in blobs:
+                if blob_name.endswith("/"):
+                    continue
                 # Construct local file path, preserving directory structure
                 relative_path = os.path.relpath(blob_name, MODEL_OBJECT_NAME_PREFIX)
                 local_file_path = os.path.join(LOCAL_MODEL_PATH, relative_path)

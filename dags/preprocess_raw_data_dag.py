@@ -10,8 +10,8 @@ def main():
     """
     Main function to run the preprocessing.
     """
-    raw_data_path = '/Users/coldbrew/Downloads/mlops-pipeline/order-platform-msa-infer-pipeline/data/consumed_orders.csv'
-    output_dir = '/Users/coldbrew/Downloads/mlops-pipeline/order-platform-msa-train-pipeline/data'
+    raw_data_path = '../order-platform-msa-infer-pipeline/data/consumed_orders.csv'
+    output_dir = './data'
     output_path = os.path.join(output_dir, 'train_data.csv')
 
     logging.info(f"Reading raw data from {raw_data_path}")
