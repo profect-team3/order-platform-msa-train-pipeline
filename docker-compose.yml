@@ -1,27 +1,27 @@
 version: '3.8'
 
 services:
-  airflow:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - AIRFLOW__API__PORT=8000
-      - AIRFLOW__CORE__CONFIG_FILE=/app/config/webserver_config.yaml
-      - AIRFLOW__WEBSERVER__AUTH_BACKEND=airflow.api.auth.backend.anonymous
-      - AIRFLOW__WEBSERVER__SIMPLE_AUTH_MANAGER_ALL_ADMINS=True
-    volumes:
-      - ./dags:/app/dags
-      - ./logs:/app/logs
-      - ./plugins:/app/plugins
-      - ./config:/app/config
-    networks:
-      - mlops-network
-    command: >
-      sh -c "
-        uv run airflow db migrate &&
-        uv run airflow standalone
-      "
+#  airflow:
+#    build: .
+#    ports:
+#      - "8000:8000"
+#    environment:
+#      - AIRFLOW__API__PORT=8000
+#      - AIRFLOW__CORE__CONFIG_FILE=/app/config/webserver_config.yaml
+#      - AIRFLOW__WEBSERVER__AUTH_BACKEND=airflow.api.auth.backend.anonymous
+#      - AIRFLOW__WEBSERVER__SIMPLE_AUTH_MANAGER_ALL_ADMINS=True
+#    volumes:
+#      - ./dags:/app/dags
+#      - ./logs:/app/logs
+#      - ./plugins:/app/plugins
+#      - ./config:/app/config
+#    networks:
+#      - mlops-network
+#    command: >
+#      sh -c "
+#        uv run airflow db migrate &&
+#        uv run airflow standalone
+#      "
 
   mlflow:
     image: python:3.11-slim
@@ -34,11 +34,16 @@ services:
     working_dir: /app
     command: >
       sh -c "
-        pip install mlflow &&
-        mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri ./mlruns
+        pip install mlflow boto3 gcsfs &&
+        mlflow ui --host 0.0.0.0 --port 8001 --backend-store-uri ${MLFLOW_BACKEND_STORE_URI:-sqlite:///app/mlruns/mlflow.db} --default-artifact-root ${MODEL_ARTIFACT_PATH}
       "
     networks:
       - mlops-network
+#    environment:
+#      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+#      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+#      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+#      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
 
 networks:
   mlops-network:

@@ -2,6 +2,8 @@
 __pycache__/
 *.py[codz]
 *$py.class
+mlruns/
+gs:/
 
 # C extensions
 *.so
@@ -223,6 +225,7 @@ mlartifacts/
 # Models
 models/*.pkl
 models/*.joblib
+AutogluonModels/
 
 # Data
 data/*.csv

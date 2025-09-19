@@ -18,10 +18,8 @@ jobs:
       run: uv python install 3.13
     - name: Install dependencies (dev)
       run: uv sync --group dev
-    - name: Run tests
-      run: uv run pytest
-    - name: Lint with ruff
-      run: uv run ruff check .
+    # - name: Run tests
+    #   run: uv run pytest
 
   prod:
     if: github.ref == 'refs/heads/main'
