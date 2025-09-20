@@ -1,397 +1,57 @@
-# Order Platform MSA Train Pipeline
+# Order Forecast - Training Pipeline
 
-이 프로젝트는 마이크로서비스 아키텍처에서 머신러닝 모델 훈련을 위한 Airflow, MLflow, DVC를 사용하는 MLOps 파이프라인을 설정합니다.
+## 1. 프로젝트 개요
 
-## 프로젝트 구조
+이 프로젝트는 주문량 예측 모델의 학습을 자동화하는 MLOps 파이프라인입니다. Google Cloud Composer(Apache Airflow)를 사용하여 데이터 전처리, 모델 학습, 그리고 학습된 모델 아티팩트를 Google Cloud Storage(GCS)에 저장하는 전 과정을 오케스트레이션합니다.
 
-- `dags/`: 워크플로우 오케스트레이션을 위한 Airflow DAG
-- `plugins/`: 사용자 정의 Airflow 플러그인
-- `models/`: 훈련된 머신러닝 모델
-- `data/`: DVC로 관리되는 데이터 파일
-- `experiments/`: MLflow 실험 및 실행
-- `scripts/`: 훈련 및 유틸리티 스크립트
-- `config/`: 설정 파일
-- `notebooks/`: 실험을 위한 Jupyter 노트북
+## 2. 주요 기능 및 책임
 
-## 설정
+- **데이터 전처리**: Kafka로부터 수집되어 GCS에 저장된 Raw 데이터를 주기적으로 읽어와, 모델 학습에 적합한 시계열 데이터셋으로 가공합니다.
+- **모델 학습**: AutoGluon의 시계열 예측(TimeSeriesPredictor) 기능과 Chronos 모델을 사용하여 주문량 예측 모델을 학습합니다.
+- **아티팩트 저장**: 학습이 완료된 모델을 추론 파이프라인에서 사용할 수 있도록 GCS 버킷에 저장합니다.
 
-1. uv를 사용하여 의존성 설치:
-   ```
-   uv sync
-   ```
+## 3. 아키텍처
 
-2. Pre-commit hooks 설정 (코드 품질 자동 검사):
-   ```
-   uv run pre-commit install
-   ```
+- **오케스트레이션**: Google Cloud Composer (Apache Airflow)
+- **핵심 로직**: Airflow DAG (`dags/train_no_mlflow_9.16_final.py`)
+- **데이터 소스**: Google Cloud Storage (GCS)
+- **학습 프레임워크**: AutoGluon Time-Series (Chronos 모델)
+- **아티팩트 저장소**: Google Cloud Storage (GCS)
 
-3. DVC 초기화 (이미 완료됨):
-   ```
-   uv run dvc init
-   ```
+## 4. 설정 및 설치
 
-4. Airflow 시작:
-   ```
-   uv run airflow standalone
-   ```
-
-5. MLflow UI 시작:
-   ```
-   uv run mlflow ui
-   ```
-
-## 빠른 시작
-
-### 옵션 1: Docker Compose로 실행 (전체 스택, 권장)
-
-공식 Airflow 클러스터와 MLflow를 함께 실행:
+프로젝트의 의존성은 `pyproject.toml`에 정의되어 있으며, `uv`를 사용하여 설치할 수 있습니다.
 
 ```bash
-./scripts/docker-compose-run.sh
+# 가상환경 생성 및 활성화
+python -m venv .venv
+source .venv/bin/activate
+
+# 의존성 설치
+uv pip install -r requirements.txt
 ```
 
-또는 수동으로:
+## 5. 사용법
+
+### 5.1. 자동화된 DAG 실행
+
+- 메인 파이프라인은 `dags/train_no_mlflow_9.16_final.py`에 정의된 Airflow DAG입니다.
+- 이 DAG는 Google Cloud Composer 환경에 배포되어, 매주(`@weekly`) 자동으로 실행되도록 설정되어 있습니다.
+
+### 5.2. 로컬 테스트
+
+로컬 환경에서 학습 과정을 테스트하려면 `notebooks/local_train.py` 스크립트를 사용할 수 있습니다. 실행 전 필요한 환경 변수를 `.env` 파일에 설정해야 합니다.
 
 ```bash
-docker-compose up --build
+# .env 파일에 환경 변수 설정 후 실행
+python notebooks/local_train.py
 ```
 
-- Airflow 웹 UI: http://localhost:8000
-- MLflow UI: http://localhost:8001
+## 6. 주요 환경 변수
 
-**로그인 방법**:
-- 사용자명: `admin`
-- 비밀번호: 컨테이너 로그에서 확인
-  ```bash
-  docker logs order-platform-msa-train-pipeline-airflow-1 | grep -i password
-  ```
-  로그에서 "Password for user 'admin': [비밀번호]" 형식으로 표시됩니다.
+Airflow DAG가 GCS 리소스에 접근하고 모델을 올바르게 저장하기 위해 다음 환경 변수들이 필요합니다.
 
-**참고**: 이 설정은 PostgreSQL, Redis, CeleryExecutor를 포함한 완전한 Airflow 클러스터입니다.
-
-**로그 확인**: Docker Desktop에서 각 서비스의 로그를 확인할 수 있습니다.
-
-### 옵션 2: 단일 Docker로 실행 (Airflow만)
-
-```bash
-# 이미지 빌드
-docker build -t order-platform-mlops .
-
-# 컨테이너 실행
-docker run -p 8000:8000 order-platform-mlops
-```
-
-http://localhost:8000에서 Airflow 웹 UI에 접속하세요.  
-**참고**: 개발 편의를 위해 인증이 비활성화되어 있습니다 (모든 사용자가 관리자 권한). 로그인 필요 없음.
-
-**관리자 계정**: 필요시 `admin` / `admin`으로 로그인 가능
-
-### 옵션 3: 로컬에서 실행
-
-1. 의존성 설치:
-   ```bash
-   uv sync
-   ```
-
-2. Airflow 시작:
-   ```bash
-   uv run airflow standalone
-   ```
-
-Airflow 웹 UI에 접속: http://localhost:8000  
-**중요**: 인증이 완전히 비활성화되어 있습니다. 로그인 페이지가 나타나도 그냥 새로고침하거나 URL에 직접 접속하세요.
-
-## 사용법
-
-- `dags/` 디렉토리에 DAG 파일을 배치하세요.
-- `scripts/`에서 훈련 스크립트를 실행하세요.
-- MLflow로 실험을 추적하세요.
-- DVC로 데이터 버전을 관리하세요.
-
-## 기술
-
-- **Airflow**: 워크플로우 오케스트레이션 (3.x 호환)
-- **MLflow**: 실험 추적 및 모델 관리
-- **DVC**: 데이터 버전 관리
-- **uv**: 빠른 Python 패키지 관리자
-
-## CI/CD
-
-이 프로젝트는 지속적 통합을 위한 GitHub Actions와 개발을 위한 로컬 CI 스크립트를 포함합니다.
-
-### GitHub Actions
-
-CI 파이프라인은 `main`과 `dev` 브랜치의 모든 푸시와 풀 리퀘스트에서 실행됩니다. 다음을 포함합니다:
-- uv를 사용한 의존성 설치
-- ruff를 사용한 코드 린팅
-- pytest를 사용한 단위 테스트
-- 모델 훈련 실행
-- Docker 이미지 빌드
-
-### 로컬 개발
-
-로컬에서 코드 품질 검사를 수행하려면:
-
-```bash
-# 린팅
-uv run ruff check .
-
-# 테스트 실행
-uv run pytest
-
-# 훈련 스크립트 실행
-uv run python scripts/train.py
-```
-
-### Docker
-
-Docker 이미지 빌드:
-
-```bash
-docker build -t order-platform-mlops .
-```
-
-컨테이너 실행:
-
-```bash
-docker run -p 8000:8000 order-platform-mlops
-```
-
-http://localhost:8000에서 Airflow 웹 UI에 접속하세요.
-
-### Docker Compose
-
-전체 MLOps 스택을 Docker Compose로 실행:
-
-```bash
-docker-compose up --build
-```
-
-또는 간단한 스크립트 사용:
-
-```bash
-./scripts/docker-compose-run.sh
-```
-
-서비스:
-- **Airflow**: http://localhost:8000
-- **MLflow**: http://localhost:8001
-## MLflow + S3 아티팩트 설정
-
-MLflow 서버를 S3를 아티팩트 스토어로 사용하도록 구성할 수 있습니다. 아래 환경변수를 설정한 뒤 Compose를 실행하세요.
-
-```bash
-export MLFLOW_BACKEND_STORE_URI=sqlite:///mlruns.db   # 또는 postgresql://...
-export MLFLOW_ARTIFACT_ROOT=s3://my-mlflow-artifacts
-export AWS_ACCESS_KEY_ID=XXXXXXXX
-export AWS_SECRET_ACCESS_KEY=YYYYYYYY
-export AWS_DEFAULT_REGION=ap-northeast-2
-# (선택) 커스텀 S3 호환 스토리지 사용 시
-export MLFLOW_S3_ENDPOINT_URL=https://s3.my-provider.com
-
-docker-compose up --build
-```
-
-학습 스크립트 실행 시 MLflow 트래킹 서버 및 등록명 지정:
-
-```bash
-export MLFLOW_TRACKING_URI=http://localhost:8001
-export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
-export MLFLOW_REGISTERED_MODEL_NAME=order-forecast
-
-uv run python scripts/train.py
-```
-
-등록된 모델은 infer 서비스에서 다음과 같이 사용합니다:
-
-```bash
-export MLFLOW_TRACKING_URI=http://localhost:8001
-export MLFLOW_MODEL_NAME=order-forecast
-export MLFLOW_MODEL_STAGE=Production
-```
-
-## 사용 예시 모음
-
-### 1) 로컬에서 MLflow 서버(S3 아티팩트) 기동
-```bash
-export MLFLOW_BACKEND_STORE_URI=sqlite:///mlruns.db
-export MLFLOW_ARTIFACT_ROOT=s3://my-mlflow-artifacts
-export AWS_ACCESS_KEY_ID=... 
-export AWS_SECRET_ACCESS_KEY=... 
-export AWS_DEFAULT_REGION=ap-northeast-2
-# (선택) MinIO 등 S3 호환 스토리지 사용 시
-export MLFLOW_S3_ENDPOINT_URL=https://s3.my-provider.com
-
-docker-compose up --build
-```
-
-### 2) 노트북 스크립트로 학습 + S3 업로드 + MLflow 기록
-```bash
-# uv 의존성 설치
-uv sync
-
-# MLflow 트래킹 서버 지정
-export MLFLOW_TRACKING_URI=http://localhost:8001
-export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
-
-# S3 업로드 설정
-export S3_UPLOAD=true
-export S3_BUCKET=my-ml-models
-export S3_PREFIX=order-forecast
-
-# 학습 실행
-uv run python notebooks/train.py
-
-# 결과 확인: MLflow UI(http://localhost:8001)
-# - Artifacts: s3/s3_model_uri.txt
-# - Tags: s3_model_uri = s3://my-ml-models/order-forecast/predictor/<run_id>
-```
-
-### 3) 스크립트 학습 + 모델 레지스트리 등록
-```bash
-export MLFLOW_TRACKING_URI=http://localhost:8001
-export MLFLOW_EXPERIMENT_NAME=order-forecast-exp
-export MLFLOW_REGISTERED_MODEL_NAME=order-forecast
-
-uv run python scripts/train.py
-
-# 등록된 모델 확인: MLflow UI의 Models 탭
-```
-
-### 4) infer 서비스에서 레지스트리 모델 서빙
-```bash
-# 모델 스테이지 기반으로 사용 (권장)
-export MLFLOW_TRACKING_URI=http://localhost:8001
-export MLFLOW_MODEL_NAME=order-forecast
-export MLFLOW_MODEL_STAGE=Production
-
-# 또는 특정 Run 아티팩트 직접 지정
-# export MODEL_URI=runs:/<run_id>/artifacts/model
-
-# 로컬 실행
-uv run uvicorn app.main:app --host 0.0.0.0 --port 9082
-
-# Docker 실행 (infer 저장소에서)
-# docker build -t order-platform-msa-infer .
-# docker run -p 9082:9082 \
-#   -e MLFLOW_TRACKING_URI=http://host.docker.internal:8001 \
-#   -e MLFLOW_MODEL_NAME=order-forecast \
-#   -e MLFLOW_MODEL_STAGE=Production \
-#   order-platform-msa-infer
-```
-
-### 5) S3 권한 부여 모범사례
-- 로컬/개발: `.env` 또는 쉘 환경변수로 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 설정
-- 클라우드: EC2/EKS/ECS의 IAM Role을 사용해 키 무주입 운영 (권장)
-- S3 호환 스토리지: `MLFLOW_S3_ENDPOINT_URL`로 엔드포인트 지정
-
-볼륨 마운트를 통해 로컬 파일 변경사항이 컨테이너에 반영됩니다.
-
-## 문제 해결
-
-**참고**: 401 에러가 발생하면 Airflow가 완전히 초기화될 때까지 몇 초 기다리거나 컨테이너 로그를 확인하세요:
-```bash
-docker logs <container_id>
-```
-
-인증이 여전히 실패하면 수동으로 사용자를 생성할 수 있습니다:
-```bash
-docker exec -it <container_id> uv run airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
-```
-
-**개발 참고**: 기본적으로 인증이 비활성화되어 개발이 쉽습니다. 인증이 필요하면 Dockerfile에서 `AIRFLOW__WEBSERVER__SIMPLE_AUTH_MANAGER_ALL_ADMINS` 환경 변수를 제거하세요.
-
-## 데이터 버전 관리 (DVC)
-
-이 프로젝트는 DVC(Data Version Control)를 사용하여 데이터 파일의 버전을 관리합니다. DVC는 Git처럼 데이터 변경 사항을 추적하고, 대용량 파일을 효율적으로 처리합니다.
-
-### DVC 설치 및 초기화
-
-1. DVC 설치 (uv 사용):
-   ```bash
-   uv add dvc
-   ```
-
-2. DVC 초기화 (프로젝트 루트에서):
-   ```bash
-   uv run dvc init
-   ```
-   - `.dvc/` 폴더와 `.dvcignore` 파일이 생성됩니다.
-   - Git에 `.dvc` 폴더를 추가하세요: `git add .dvc`
-
-### 데이터 파일 추적
-
-1. 데이터 파일 추가:
-   ```bash
-   dvc add data/forecast_data_featured.csv
-   ```
-   - `data/forecast_data_featured.csv.dvc` 파일이 생성됩니다.
-   - 원본 파일은 `.gitignore`에 추가되어 Git에서 제외됩니다.
-
-2. Git 커밋:
-   ```bash
-   git add data/forecast_data_featured.csv.dvc .gitignore
-   git commit -m "Add data file with DVC tracking"
-   ```
-
-### DVC 원격 저장소 설정 (선택)
-
-대용량 데이터를 클라우드에 저장하려면 원격 저장소를 설정하세요:
-
-1. Google Drive 예시:
-   ```bash
-   dvc remote add -d myremote gdrive://folder-id
-   ```
-
-2. AWS S3 예시:
-   ```bash
-   dvc remote add -d myremote s3://mybucket/path
-   ```
-
-3. 데이터 푸시:
-   ```bash
-   dvc push
-   ```
-
-4. 데이터 풀:
-   ```bash
-   dvc pull
-   ```
-
-### DVC 상태 및 변경 사항 확인
-
-- 상태 확인:
-  ```bash
-  dvc status
-  ```
-
-- 변경 사항 비교:
-  ```bash
-  dvc diff
-  ```
-
-- 데이터 재현 (스크립트 실행):
-  ```bash
-  dvc repro
-  ```
-
-### 워크플로우 예시
-
-1. 시뮬레이션 데이터 생성:
-   ```bash
-   uv run python notebooks/generate_simulated_data.py
-   ```
-
-2. DVC로 추적:
-   ```bash
-   dvc add data/forecast_data_featured.csv
-   git add data/forecast_data_featured.csv.dvc
-   git commit -m "Update simulated data"
-   ```
-
-3. 원격에 푸시:
-   ```bash
-   dvc push
-   ```
-
-DVC를 사용하면 데이터 변경 사항을 Git처럼 관리할 수 있어, 실험 재현성과 협업이 용이합니다.
+- `BUCKET_NAME`: 학습 데이터가 저장된 GCS 버킷 이름
+- `OBJECT_NAME`: 학습 데이터 파일의 GCS 내 경로
+- `MODEL_BUCKET_NAME`: 학습된 모델 아티팩트를 저장할 GCS 버킷 이름
+- `MODEL_OBJECT_NAME_PREFIX`: GCS 버킷 내에서 모델 아티팩트를 저장할 경로 (prefix)
